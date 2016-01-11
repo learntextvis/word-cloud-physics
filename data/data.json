@@ -1,0 +1,20 @@
+[
+  {
+    "id": "document1",
+    "name": "document1",
+    "tokens": [
+      ["the", 3], ["quick", 10], ["brown", 1],
+      ["fox", 4], ["jumped", 3], ["over", 23],
+      ["lazy", 3], ["frog", 2]
+    ]
+  },
+  {
+    "id": "document2",
+    "name": "document2",
+    "tokens": [
+      ["the", 50], ["quick", 5], ["brown", 1],
+      ["fox", 32], ["jumped", 33], ["over", 3],
+      ["lazy", 3], ["dog", 4]
+    ]
+  }
+]
