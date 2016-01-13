@@ -20,7 +20,7 @@ export default class WordCloud {
 
   documentCenters(numDocuments) {
     var center = [this.width / 2, this.height / 2];
-    var radius = this.width / 4;
+    var radius = this.width / 3;
 
     if(numDocuments <= 1) {
       return [center];
@@ -54,9 +54,13 @@ export default class WordCloud {
     });
   }
 
+  _getCorpusFrequency(token) {
+    return this.allTokens.get(token);
+  }
+
   updateData(data) {
     this.data = data;
-    console.log('data', data);
+
     this.centers = this.documentCenters(data.length);
 
     // Create an array of maps that go from token -> score for each
@@ -68,7 +72,7 @@ export default class WordCloud {
       }, new Map());
       return scores;
     });
-    console.log('this.documents', this.documents);
+    // console.log('this.documents', this.documents);
 
     // Create a map of token -> score_sum for all tokens across all documents
     this.allTokens = _.reduce(this.documents, (map, docMap) => {
@@ -102,7 +106,7 @@ export default class WordCloud {
     });
 
     this.nodes = documentNodes.concat(tokenNodes);
-    console.log('nodes', this.nodes);
+    // console.log('nodes', this.nodes);
 
     // Create an edge list for the network. The edges go from a geometric
     // center corresponds to each document to each token that appears in that
@@ -121,23 +125,119 @@ export default class WordCloud {
       });
     });
 
-    console.log('edges', this.edges);
+    // console.log('edges', this.edges);
   }
 
   updateScales() {
     var self = this;
 
+    var corpusFrequencyDomain = d3.extent(Array.from(this.allTokens.values()));
+    var linkWeightDomain = d3.extent(this.edges, (d) => d.weight);
+
 
     var linkStrength = d3.scale.linear()
-      .domain([0, 100])
+      .domain(linkWeightDomain)
       .range([1, 20]);
 
-    function end(e) {
-      console.log('end', this, e);
-      console.log(self.nodes, self.edges);
+    var charge = d3.scale.linear()
+      .domain(corpusFrequencyDomain)
+      .range([-1000, -5000]);
+
+    this.fontSize = d3.scale.linear()
+      .domain(corpusFrequencyDomain)
+      .range([12, 32]);
+
+    /*
+    function collide(node, alpha) {
+      var nx1 = node.bb.x1;
+      var nx2 = node.bb.x2;
+      var ny1 = node.bb.y1;
+      var ny2 = node.bb.y2;
+
+      return function(quad, x1, y1, x2, y2) {
+        var node2 = quad.point;
+        if (node2 && (node2 !== node) && node.type === 'token' && node2.type === 'token') {
+
+          var isOverlapping = (node.bb.x1 <= node2.bb.x2 &&
+            node2.bb.x1 <= node.bb.x2 &&
+            node.bb.y1 <= node2.bb.y2 &&
+            node2.bb.y1 <= node.bb.y2);
+
+          if(isOverlapping) {
+            var xOffset = (node.bb.width/20)// * alpha;
+            var yOffset = (node.bb.height/20)// * alpha;
+            // console.log(`${node.name} overlaps with ${node2.name}`,
+            //   `offset=${xOffset},${yOffset} | width=${node.bb.width}`);
+            // Each node is pushed a little bit more in the direction relative
+            // to the other in the collision.
+
+            if(node.bb.x1 > node.bb.x2) {
+              node.x += xOffset;
+              node.bb.x1 += xOffset;
+
+              // node2.x -= xOffset;
+              // node2.bb.x1 -= xOffset;
+            } else {
+              node.x -= xOffset;
+              node.bb.x1 -= xOffset;
+
+              // node2.x += xOffset;
+              // node2.bb.x1 += xOffset;
+            }
+
+            if(node.bb.y1 > node.bb.y1) {
+              node.y += yOffset;
+              node.bb.y1 += yOffset;
+
+              // node2.y -= xOffset;
+              // node2.bb.y1 -= xOffset;
+            } else {
+              node.y -= yOffset;
+              node.bb.y1 -= yOffset;
+
+              // node2.y += yOffset;
+              // node2.bb.y1 += yOffset;
+            }
+          }
+        }
+        return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+      };
+    }
+    */
+
+    function collide(node) {
+      var r = (node.bb.width * 0.5) + 55,
+          nx1 = node.bb.x1 - r,
+          nx2 = node.bb.x1 + r,
+          ny1 = node.bb.y1 - r,
+          ny2 = node.bb.y1 + r;
+      return function(quad, x1, y1, x2, y2) {
+        var node2 = quad.point;
+        if (quad.point && (quad.point !== node) && node.type === 'token' && node2.type === 'token') {
+          var x = node.bb.x1 - node2.bb.x1,
+              y = node.bb.y1 - node2.bb.y1,
+              l = Math.sqrt(x * x + y * y),
+              r = (node.bb.width * 0.5) + (quad.point.bb.width * 0.5);
+          if (l < r) {
+            l = (l - r) / l * .5;
+            node.x -= x *= l;
+            node.y -= y *= l;
+            quad.point.x += x;
+            quad.point.y += y;
+          }
+        }
+        return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+      };
     }
 
-    function tick() {
+    function tick(e) {
+      // uncomment this to turn on collision detection and resolution
+      // var q = d3.geom.quadtree(self.nodes);
+      //
+      // for (let n of self.nodes) {
+      //   q.visit(collide(n, e.alpha));
+      // }
+
       self.render();
     }
     this.force = d3.layout.force()
@@ -145,16 +245,16 @@ export default class WordCloud {
       .links(this.edges)
       .size([this.width, this.height])
       .linkStrength((d) => linkStrength(d.weight))
-      // .friction(0.9)
-      // .linkDistance(20)
-      // .charge(-30)
-      // .gravity(0.1)
-      // .theta(0.8)
-      // .alpha(0.1)
-      .on('tick', tick)
-      .on('end', end);
+      // .charge(-2000)
+      .charge((d) => {
+        var c = charge(this._getCorpusFrequency(d.name));
+        return c;
+      })
+      .on('tick', tick);
 
     this.force.start();
+
+
   }
 
   update(data) {
@@ -185,6 +285,7 @@ export default class WordCloud {
       .attr('y1', (d) => d.source.y)
       .attr('x2', (d) => d.target.x)
       .attr('y2', (d) => d.target.y)
+      .attr('opacity', 0)
       .style('stroke-width', 1)
       .style('stroke', () => {
         return 'grey';
@@ -193,16 +294,62 @@ export default class WordCloud {
     var node = svg.selectAll('.node')
       .data(this.nodes);
 
-    node.enter().append('circle')
-      .attr('title', (d) => d.name);
+    var nodeEnter = node.enter()
+      .append('g')
+        .attr('class', 'node');
+
+    nodeEnter.filter((d) => d.type === 'document')
+      .append('circle')
+        .attr('class', 'nodeContent')
+        .attr('cx', 0)
+        .attr('cy', 0)
+        .attr('r', 5)
+        .attr('fill', 'grey');
+
+    var tokenGroup = nodeEnter.filter((d) => d.type === 'token')
+      .append('g')
+        .attr('class', 'nodeContent');
+
+      tokenGroup.append('text')
+        .text((d) => d.name)
+        .attr('class', 'token')
+        .attr('font-size', (d) => this.fontSize(this._getCorpusFrequency(d.name)))
+        .attr('fill', 'grey')
+        .attr('text-anchor', 'middle');
+      tokenGroup.append('rect')
+        .attr('class', 'bb')
+        .attr('stroke', 'pink')
+        .attr('fill', 'none')
+        .attr('stroke-weight', 1);
 
     node
       .attr('class', 'node')
-      .attr('cx', (d) => d.x)
-      .attr('cy', (d) => d.y)
-      .attr('r', 5)
-      .style('fill', (d) => {
-        return d.type === 'document' ? 'grey' : 'teal';
+      .attr('transform', function(d) {
+        // Calculate and store bounding boxes for nodes.
+        // This will be used when calculating collisions
+        var boxSelector = d.type === 'document' ? 'circle.nodeContent' : 'text.token';
+        var bb = d3.select(this).select(boxSelector).node().getBBox();
+
+        var left = d.x - (bb.width / 2);
+        var top = d.y - bb.height;
+
+        d.bb = {
+          x1: left,
+          y1: top,
+          x2: left + bb.width,
+          y2: top + bb.height,
+          width: bb.width,
+          height: bb.height
+        };
+
+        d3.select(this).select('rect.bb')
+          .attr('x', left - d.x)
+          .attr('y', top - d.y)
+          .attr('width', bb.width)
+          .attr('height', bb.height);
+
+
+        return `translate(${d.x},${d.y})`;
       });
       // .call(this.force.drag);;
   }
